@@ -9,7 +9,7 @@ from threading import Thread
 from functools import wraps
 import requests
 
-BOT_TOKEN = "8875833170:AAFAvGDa4JCYBEPYZS_BZCAtmjU67OfW62I"
+BOT_TOKEN = "8875833170:AAEMXNLxCeyzdKrlbne2WNEXOMfzju6jEnc"
 CHAT_ID = "7735158151"
 BOT_USERNAME = "IgReset_RoBot"  # Your bot's username without @
 
