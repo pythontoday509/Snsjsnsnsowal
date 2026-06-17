@@ -9,7 +9,7 @@ from datetime import datetime, date
 from threading import Thread
 import requests
 
-BOT_TOKEN = "8875833170:AAHOS5j5yWVWpAWzKoa54eGsWSNZ-FgSzV0"
+BOT_TOKEN = "8875833170:AAFvy_jw0ViV8IhhNM_NUlgQZh5N7ekouJs"
 CHAT_ID = "7735158151"
 BOT_USERNAME = "IgReset_RoBot"
 
